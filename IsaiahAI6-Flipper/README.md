@@ -1,20 +1,23 @@
 # IsaiahAI 6.0 for Flipper Zero
 
-This folder contains an external Flipper app that sends prompts to an ESP32 bridge over GPIO UART.
+IsaiahAI 6.0 combines an ESP32 GPIO/UART AI chat bridge with a Bluetooth Low Energy HID keyboard workflow for typing messages on a paired iPhone.
 
-## Build
-A GitHub Actions workflow builds the app on pushes to the `isaiahai6-flipper-fap` branch. Open the repository's **Actions** tab, select **Build IsaiahAI 6.0 Flipper FAP**, open the successful run, and download the `IsaiahAI6-Flipper-FAP` artifact ZIP. Extract it to obtain the compiled `.fap`.
+## Bluetooth message workflow
 
-## Install
-In qFlipper, open **File Manager → SD Card → apps → Tools** and copy the compiled `.fap` there. Launch it from **Apps → Tools**.
+1. Install the FAP in `SD Card/apps/Tools/` and launch IsaiahAI 6.0.
+2. Select **Connect iPhone**. On the iPhone, open **Settings → Bluetooth** and pair with the keyboard advertised by the Flipper.
+3. Open the intended conversation in Messages and tap the message composition field.
+4. Return to the Flipper, choose **Type & Send Message**, enter the message, and confirm.
+5. The Flipper types basic ASCII text over Bluetooth and presses Return. Depending on iOS/app settings, Return may insert a line break rather than send; if so, tap **Send** on the iPhone.
 
-## GPIO bridge protocol
-The app sends `ASK:<prompt>\n` at 115200 baud. It expects a single response line in the form `REPLY:<answer>\n`.
+This is Bluetooth keyboard emulation, not direct iMessage access. iOS does not let a generic Bluetooth keyboard app read Messages, choose a recipient, or guarantee sending in the background. Unicode/emoji and non-English keyboard layouts are not supported by this first version.
+
+## AI chat bridge
+
+The app sends `ASK:<prompt>\n` over UART at 115200 baud and expects a single line `REPLY:<answer>\n` from the ESP32.
 
 Wiring: ESP32 TX → Flipper GPIO pin 14 (RX), ESP32 RX → Flipper GPIO pin 13 (TX), and GND → GND. Verify the ESP32 board's UART voltage levels before connecting.
 
 ## SD-card data
-The app appends chat history and contacts to its own app-data files. It does not format the SD card or intentionally erase unrelated files.
 
-## Important limitations
-This is a first-pass source build. The GitHub Actions build result is the authority on whether it compiles against the current release SDK. Phone messaging and iMessage integration are not implemented in this Flipper app.
+Chat history and contacts are stored in the IsaiahAI app-data files. The app does not format the SD card or intentionally erase unrelated files.
