@@ -9,5 +9,4 @@ App(
     fap_description="IsaiahChat AI over ESP32 GPIO with Bluetooth keyboard messaging for iPhone.",
     fap_author="IsaiahAI Project",
     fap_weburl="https://github.com/stamourelectronics-creator/isaiahsi",
-    fap_libs=["ble_profile"],
 )
