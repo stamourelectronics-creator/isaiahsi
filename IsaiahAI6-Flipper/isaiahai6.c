@@ -123,6 +123,7 @@ static bool start_bluetooth_keyboard(IsaiahApp* app) {
 }
 
 static void ble_type_ascii(IsaiahApp* app, const char* text) {
+    UNUSED(app);
     for(const unsigned char* p = (const unsigned char*)text; *p; p++) {
         if(*p < 32 || *p > 126) continue;
         uint16_t key = HID_ASCII_TO_KEY(*p);
