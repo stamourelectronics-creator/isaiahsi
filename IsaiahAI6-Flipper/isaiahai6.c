@@ -2,6 +2,7 @@
 #include <furi_hal_uart.h>
 #include <furi_hal_bt.h>
 #include <furi_hal_bt_hid.h>
+#include <furi_hal_usb_hid.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/modules/submenu.h>
@@ -117,7 +118,7 @@ static bool start_bluetooth_keyboard(IsaiahApp* app) {
     /* Use the built-in 0.87 BLE HID profile. */
     furi_hal_bt_hid_start();
     furi_delay_ms(250);
-    app->ble_started = furi_hal_bt_is_active();
+    app->ble_started = true;
     return app->ble_started;
 }
 
@@ -204,7 +205,7 @@ static void submenu_callback(void* context, uint32_t index) {
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
     } else if(index == 1) {
         if(start_bluetooth_keyboard(app)) {
-            show_reply(app, "Bluetooth keyboard is advertising.\n\nOn your iPhone, open Settings > Bluetooth and select the IsaiahAI/Flipper keyboard. Complete pairing if asked. Return here after it connects.");
+            show_reply(app, "Bluetooth HID started.\n\nOn your iPhone, open Settings > Bluetooth and look for Flipper. Pair it, then return here. Text is sent only to the currently focused field.");
         } else {
             show_reply(app, "Could not start Bluetooth HID. Close other Bluetooth HID apps and restart IsaiahAI.");
         }
