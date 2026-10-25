@@ -1,9 +1,6 @@
 #include <furi.h>
 #include <furi_hal_uart.h>
 #include <furi_hal_bt.h>
-#include <furi_hal_usb_hid.h>
-#include <furi_ble/profile_interface.h>
-
 #include <furi_hal_bt_hid.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
@@ -23,7 +20,6 @@
 #define APP_FOLDER "/ext/apps_data/isaiahai6"
 #define HISTORY_PATH APP_DATA_PATH("history.txt")
 #define CONTACTS_PATH APP_DATA_PATH("contacts.txt")
-#define BLE_KEYS_PATH APP_DATA_PATH(".bt_hid.keys")
 
 typedef enum {
     ModeAiChat,
@@ -43,7 +39,6 @@ typedef struct {
     char response[RESPONSE_SIZE];
     volatile size_t rx_length;
     volatile bool rx_done;
-    volatile bool ble_connected;
     bool showing_reply;
     bool editing_input;
     InputMode input_mode;
@@ -119,8 +114,7 @@ static bool ask_bridge(IsaiahApp* app, const char* prompt) {
 
 static bool start_bluetooth_keyboard(IsaiahApp* app) {
     if(app->ble_started) return true;
-    /* Use the built-in 0.87 BLE HID profile; the newer ble_profile library
-       is not present in this firmware API. */
+    /* Use the built-in 0.87 BLE HID profile. */
     furi_hal_bt_hid_start();
     furi_delay_ms(250);
     app->ble_started = furi_hal_bt_is_active();
