@@ -1,0 +1,12 @@
+App(
+    appid="isaiahai6",
+    name="IsaiahAI 6.0",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="isaiahai6_app",
+    stack_size=6144,
+    fap_version="1.0",
+    fap_category="Tools",
+    fap_description="IsaiahAI 6.0 chat over a GPIO UART ESP32 bridge, with SD-card history and contacts.",
+    fap_author="IsaiahAI Project",
+    fap_weburl="https://github.com/stamourelectronics-creator/isaiahsi",
+)
