@@ -24,7 +24,7 @@ jobs:
         uses: flipperdevices/flipperzero-ufbt-action@v0.1
         with:
           app-dir: IsaiahAI6-Flipper
-          sdk-channel: release
+          sdk-branch: 0.87.0
           ufbt-args: ""
 
       - name: Upload compiled FAP
