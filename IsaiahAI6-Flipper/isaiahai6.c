@@ -104,13 +104,14 @@ static bool ask_bridge(IsaiahApp* app, const char* prompt) {
     return false;
 }
 
-static uint32_t navigation_callback(void* context) {
+static bool navigation_callback(void* context) {
     IsaiahApp* app = context;
     if(app->showing_reply) {
         app->showing_reply = false;
-        return VIEW_INPUT;
+        view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
+        return true;
     }
-    return VIEW_NONE;
+    return false;
 }
 
 static void input_result_callback(void* context) {
