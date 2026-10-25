@@ -3,7 +3,23 @@
 #include <furi_hal_serial_control.h>
 #include <furi_hal_bt.h>
 #include <furi_hal_usb_hid.h>
-#include <bt_service/bt.h>
+#include <furi_ble/profile_interface.h>
+
+typedef struct Bt Bt;
+typedef enum {
+    BtStatusUnavailable,
+    BtStatusOff,
+    BtStatusAdvertising,
+    BtStatusConnected,
+} BtStatus;
+typedef void (*BtStatusChangedCallback)(BtStatus status, void* context);
+#define RECORD_BT "bt"
+extern FuriHalBleProfileBase* bt_profile_start(Bt* bt, const FuriHalBleProfileTemplate* profile_template, FuriHalBleProfileParams params);
+extern bool bt_profile_restore_default(Bt* bt);
+extern void bt_disconnect(Bt* bt);
+extern void bt_set_status_changed_callback(Bt* bt, BtStatusChangedCallback callback, void* context);
+extern void bt_keys_storage_set_storage_path(Bt* bt, const char* path);
+extern void bt_keys_storage_set_default_path(Bt* bt);
 #include <ble_profile/extra_profiles/hid_profile.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
