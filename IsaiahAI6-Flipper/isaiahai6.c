@@ -1,6 +1,5 @@
 #include <furi.h>
-#include <furi_hal_serial.h>
-#include <furi_hal_serial_control.h>
+#include <furi_hal_uart.h>
 #include <furi_hal_bt.h>
 #include <furi_hal_usb_hid.h>
 #include <furi_ble/profile_interface.h>
@@ -53,7 +52,7 @@ typedef struct {
     TextInput* input;
     TextBox* text_box;
     Storage* storage;
-    FuriHalSerialHandle* uart;
+    bool uart_ready;
     Bt* bt;
     FuriHalBleProfileBase* ble_profile;
     char prompt[PROMPT_SIZE];
@@ -96,23 +95,20 @@ static void read_contacts(IsaiahApp* app) {
     if(!app->response[0]) snprintf(app->response, sizeof(app->response), "No contacts saved yet. Use /contact Name|Number.");
 }
 
-static void serial_rx_callback(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
+static void serial_rx_callback(UartIrqEvent event, uint8_t c, void* context) {
     IsaiahApp* app = context;
-    if(!(event & FuriHalSerialRxEventData)) return;
-    while(furi_hal_serial_async_rx_available(handle)) {
-        uint8_t c = furi_hal_serial_async_rx(handle);
-        if(c == '\r') continue;
-        if(c == '\n') {
-            app->response[app->rx_length] = '\0';
-            app->rx_done = true;
-            return;
-        }
-        if(app->rx_length < sizeof(app->response) - 1) app->response[app->rx_length++] = (char)c;
-        else {
-            app->response[sizeof(app->response) - 1] = '\0';
-            app->rx_done = true;
-            return;
-        }
+    if(event != UartIrqEventRXNE) return;
+    if(c == '\r') return;
+    if(c == '\n') {
+        app->response[app->rx_length] = '\0';
+        app->rx_done = true;
+        return;
+    }
+    if(app->rx_length < sizeof(app->response) - 1) {
+        app->response[app->rx_length++] = (char)c;
+    } else {
+        app->response[sizeof(app->response) - 1] = '\0';
+        app->rx_done = true;
     }
 }
 
@@ -123,8 +119,7 @@ static bool ask_bridge(IsaiahApp* app, const char* prompt) {
     app->rx_length = 0;
     app->rx_done = false;
     app->response[0] = '\0';
-    furi_hal_serial_tx(app->uart, (const uint8_t*)tx, (size_t)n);
-    furi_hal_serial_tx_wait_complete(app->uart);
+    furi_hal_uart_tx(FuriHalUartIdUSART1, (uint8_t*)tx, (size_t)n);
     uint32_t started = furi_get_tick();
     while(!app->rx_done && (furi_get_tick() - started) < furi_ms_to_ticks(55000)) furi_delay_ms(10);
     if(!app->rx_done) {
@@ -148,6 +143,7 @@ static bool start_bluetooth_keyboard(IsaiahApp* app) {
         furi_hal_bt_start_advertising();
         return true;
     }
+    if(!app->bt) return false;
     bt_disconnect(app->bt);
     furi_delay_ms(200);
     bt_keys_storage_set_storage_path(app->bt, BLE_KEYS_PATH);
@@ -224,7 +220,7 @@ static void input_result_callback(void* context) {
         show_reply(app, app->response);
     } else if(strcmp(app->prompt, "/help") == 0) {
         show_reply(app, "IsaiahAI 6.0\n\nAI Chat: uses the ESP32 UART bridge.\nConnect iPhone: pair as a Bluetooth keyboard.\nType & Send: types into the currently focused iPhone text field and presses Return.\n/contact Name|Number saves a contact.\n/contacts lists contacts.\n\nThe Flipper cannot directly read iMessages or select recipients.");
-    } else if(app->uart) {
+    } else if(app->uart_ready) {
         if(!ask_bridge(app, app->prompt) && !app->response[0])
             snprintf(app->response, sizeof(app->response), "Bridge returned an invalid response.");
         append_line(app, HISTORY_PATH, "CHAT", app->prompt);
@@ -240,7 +236,7 @@ static void submenu_callback(void* context, uint32_t index) {
         app->input_mode = ModeAiChat;
         app->editing_input = true;
         app->prompt[0] = '\0';
-        text_input_set_header_text(app->input, "IsaiahAI 6.0 - AI Chat");
+        text_input_set_header_text(app->input, "IsaiahChat - AI Chat");
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
     } else if(index == 1) {
         if(start_bluetooth_keyboard(app)) {
@@ -285,16 +281,13 @@ int32_t isaiahai6_app(void* p) {
     memset(app, 0, sizeof(IsaiahApp));
 
     app->storage = furi_record_open(RECORD_STORAGE);
+    if(!app->storage) { free(app); return -1; }
     storage_common_mkdir(app->storage, APP_FOLDER);
     app->bt = furi_record_open(RECORD_BT);
 
-    app->uart = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);
-    if(app->uart) {
-        furi_hal_serial_init(app->uart, 115200);
-        furi_hal_serial_enable_direction(app->uart, FuriHalSerialDirectionTx);
-        furi_hal_serial_enable_direction(app->uart, FuriHalSerialDirectionRx);
-        furi_hal_serial_async_rx_start(app->uart, serial_rx_callback, app, false);
-    }
+    app->uart_ready = true;
+    furi_hal_uart_init(FuriHalUartIdUSART1, 115200);
+    furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, serial_rx_callback, app);
 
     app->gui = furi_record_open(RECORD_GUI);
     app->dispatcher = view_dispatcher_alloc();
@@ -303,7 +296,7 @@ int32_t isaiahai6_app(void* p) {
     view_dispatcher_attach_to_gui(app->dispatcher, app->gui, ViewDispatcherTypeFullscreen);
 
     app->menu = submenu_alloc();
-    submenu_set_header(app->menu, "IsaiahAI 6.0");
+    submenu_set_header(app->menu, "IsaiahChat");
     submenu_add_item(app->menu, "AI Chat (ESP32)", 0, submenu_callback, app);
     submenu_add_item(app->menu, "Connect iPhone", 1, submenu_callback, app);
     submenu_add_item(app->menu, "Type & Send Message", 2, submenu_callback, app);
@@ -311,7 +304,7 @@ int32_t isaiahai6_app(void* p) {
     view_dispatcher_add_view(app->dispatcher, VIEW_MENU, submenu_get_view(app->menu));
 
     app->input = text_input_alloc();
-    text_input_set_header_text(app->input, "IsaiahAI 6.0");
+    text_input_set_header_text(app->input, "IsaiahChat");
     text_input_set_result_callback(app->input, input_result_callback, app, app->prompt, sizeof(app->prompt), true);
     view_dispatcher_add_view(app->dispatcher, VIEW_INPUT, text_input_get_view(app->input));
 
@@ -321,21 +314,19 @@ int32_t isaiahai6_app(void* p) {
     view_dispatcher_switch_to_view(app->dispatcher, VIEW_MENU);
     view_dispatcher_run(app->dispatcher);
 
-    if(app->ble_profile) {
+    if(app->bt && app->ble_profile) {
         bt_set_status_changed_callback(app->bt, NULL, NULL);
         bt_disconnect(app->bt);
         furi_delay_ms(200);
         bt_keys_storage_set_default_path(app->bt);
-        furi_check(bt_profile_restore_default(app->bt));
+        (void)bt_profile_restore_default(app->bt);
+        app->ble_profile = NULL;
     }
-    furi_record_close(RECORD_BT);
+    if(app->bt) furi_record_close(RECORD_BT);
 
-    if(app->uart) {
-        furi_hal_serial_async_rx_stop(app->uart);
-        furi_hal_serial_disable_direction(app->uart, FuriHalSerialDirectionTx);
-        furi_hal_serial_disable_direction(app->uart, FuriHalSerialDirectionRx);
-        furi_hal_serial_deinit(app->uart);
-        furi_hal_serial_control_release(app->uart);
+    if(app->uart_ready) {
+        furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, NULL, NULL);
+        furi_hal_uart_deinit(FuriHalUartIdUSART1);
     }
     view_dispatcher_remove_view(app->dispatcher, VIEW_MENU);
     view_dispatcher_remove_view(app->dispatcher, VIEW_INPUT);
