@@ -1,10 +1,10 @@
-# IsaiahAI 6.0 for Flipper Zero
+# IsaiahChat for Flipper Zero
 
-IsaiahAI 6.0 combines an ESP32 GPIO/UART AI chat bridge with a Bluetooth Low Energy HID keyboard workflow for typing messages on a paired iPhone.
+IsaiahChat combines an ESP32 GPIO/UART AI chat bridge with a Bluetooth Low Energy HID keyboard workflow for typing messages on a paired iPhone.
 
 ## Bluetooth message workflow
 
-1. Install the FAP in `SD Card/apps/Tools/` and launch IsaiahAI 6.0.
+1. Install the FAP in `SD Card/apps/Tools/` and launch IsaiahChat.
 2. Select **Connect iPhone**. On the iPhone, open **Settings → Bluetooth** and pair with the keyboard advertised by the Flipper.
 3. Open the intended conversation in Messages and tap the message composition field.
 4. Return to the Flipper, choose **Type & Send Message**, enter the message, and confirm.
