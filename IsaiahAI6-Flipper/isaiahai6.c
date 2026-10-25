@@ -3,7 +3,7 @@
 #include <furi_hal_serial_control.h>
 #include <furi_hal_bt.h>
 #include <furi_hal_usb_hid.h>
-#include <bt/bt_service/bt.h>
+#include <bt_service/bt.h>
 #include <ble_profile/extra_profiles/hid_profile.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
@@ -46,6 +46,7 @@ typedef struct {
     volatile bool rx_done;
     volatile bool ble_connected;
     bool showing_reply;
+    bool editing_input;
     InputMode input_mode;
 } IsaiahApp;
 
@@ -165,6 +166,7 @@ static void show_reply(IsaiahApp* app, const char* message) {
     text_box_set_font(app->text_box, TextBoxFontText);
     text_box_set_focus(app->text_box, TextBoxFocusStart);
     app->showing_reply = true;
+    app->editing_input = false;
     view_dispatcher_switch_to_view(app->dispatcher, VIEW_REPLY);
 }
 
@@ -220,6 +222,7 @@ static void submenu_callback(void* context, uint32_t index) {
     IsaiahApp* app = context;
     if(index == 0) {
         app->input_mode = ModeAiChat;
+        app->editing_input = true;
         app->prompt[0] = '\0';
         text_input_set_header_text(app->input, "IsaiahAI 6.0 - AI Chat");
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
@@ -234,6 +237,7 @@ static void submenu_callback(void* context, uint32_t index) {
             show_reply(app, "Not connected to iPhone yet.\n\nChoose Connect iPhone first, then pair in iOS Settings > Bluetooth.");
         } else {
             app->input_mode = ModeBluetoothMessage;
+            app->editing_input = true;
             app->prompt[0] = '\0';
             text_input_set_header_text(app->input, "Type iPhone message");
             view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
@@ -250,7 +254,8 @@ static bool navigation_callback(void* context) {
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_MENU);
         return true;
     }
-    if(view_dispatcher_get_current_view(app->dispatcher) == VIEW_INPUT) {
+    if(app->editing_input) {
+        app->editing_input = false;
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_MENU);
         return true;
     }
