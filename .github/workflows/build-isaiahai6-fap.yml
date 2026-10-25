@@ -1,0 +1,36 @@
+name: Build IsaiahAI 6.0 Flipper FAP
+
+on:
+  push:
+    branches:
+      - isaiahai6-flipper-fap
+    paths:
+      - "IsaiahAI6-Flipper/**"
+      - ".github/workflows/build-isaiahai6-fap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-fap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Flipper app
+        id: build-app
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1
+        with:
+          app-dir: IsaiahAI6-Flipper
+          sdk-channel: release
+          ufbt-args: ""
+
+      - name: Upload compiled FAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: IsaiahAI6-Flipper-FAP
+          path: ${{ steps.build-app.outputs.fap-artifacts }}
+          if-no-files-found: error
+          retention-days: 30
