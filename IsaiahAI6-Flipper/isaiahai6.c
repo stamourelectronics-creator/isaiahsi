@@ -4,22 +4,7 @@
 #include <furi_hal_usb_hid.h>
 #include <furi_ble/profile_interface.h>
 
-typedef struct Bt Bt;
-typedef enum {
-    BtStatusUnavailable,
-    BtStatusOff,
-    BtStatusAdvertising,
-    BtStatusConnected,
-} BtStatus;
-typedef void (*BtStatusChangedCallback)(BtStatus status, void* context);
-#define RECORD_BT "bt"
-extern FuriHalBleProfileBase* bt_profile_start(Bt* bt, const FuriHalBleProfileTemplate* profile_template, FuriHalBleProfileParams params);
-extern bool bt_profile_restore_default(Bt* bt);
-extern void bt_disconnect(Bt* bt);
-extern void bt_set_status_changed_callback(Bt* bt, BtStatusChangedCallback callback, void* context);
-extern void bt_keys_storage_set_storage_path(Bt* bt, const char* path);
-extern void bt_keys_storage_set_default_path(Bt* bt);
-#include <ble_profile/extra_profiles/hid_profile.h>
+#include <furi_hal_bt_hid.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/modules/submenu.h>
@@ -53,8 +38,7 @@ typedef struct {
     TextBox* text_box;
     Storage* storage;
     bool uart_ready;
-    Bt* bt;
-    FuriHalBleProfileBase* ble_profile;
+    bool ble_started;
     char prompt[PROMPT_SIZE];
     char response[RESPONSE_SIZE];
     volatile size_t rx_length;
@@ -133,28 +117,14 @@ static bool ask_bridge(IsaiahApp* app, const char* prompt) {
     return false;
 }
 
-static void ble_status_changed(BtStatus status, void* context) {
-    IsaiahApp* app = context;
-    app->ble_connected = (status == BtStatusConnected);
-}
-
 static bool start_bluetooth_keyboard(IsaiahApp* app) {
-    if(app->ble_profile) {
-        furi_hal_bt_start_advertising();
-        return true;
-    }
-    if(!app->bt) return false;
-    bt_disconnect(app->bt);
-    furi_delay_ms(200);
-    bt_keys_storage_set_storage_path(app->bt, BLE_KEYS_PATH);
-    app->ble_profile = bt_profile_start(app->bt, ble_profile_hid, NULL);
-    if(!app->ble_profile) {
-        bt_keys_storage_set_default_path(app->bt);
-        return false;
-    }
-    bt_set_status_changed_callback(app->bt, ble_status_changed, app);
-    furi_hal_bt_start_advertising();
-    return true;
+    if(app->ble_started) return true;
+    /* Use the built-in 0.87 BLE HID profile; the newer ble_profile library
+       is not present in this firmware API. */
+    furi_hal_bt_hid_start();
+    furi_delay_ms(250);
+    app->ble_started = furi_hal_bt_is_active();
+    return app->ble_started;
 }
 
 static void ble_type_ascii(IsaiahApp* app, const char* text) {
@@ -162,18 +132,18 @@ static void ble_type_ascii(IsaiahApp* app, const char* text) {
         if(*p < 32 || *p > 126) continue;
         uint16_t key = HID_ASCII_TO_KEY(*p);
         if(key == HID_KEYBOARD_NONE) continue;
-        if(!ble_profile_hid_kb_press(app->ble_profile, key)) {
+        if(!furi_hal_bt_hid_kb_press(key)) {
             furi_delay_ms(20);
             continue;
         }
         furi_delay_ms(18);
-        ble_profile_hid_kb_release(app->ble_profile, key);
+        furi_hal_bt_hid_kb_release(key);
         furi_delay_ms(18);
     }
 }
 
 static void show_reply(IsaiahApp* app, const char* message) {
-    snprintf(app->response, sizeof(app->response), "%s", message);
+    if(message != app->response) snprintf(app->response, sizeof(app->response), "%s", message);
     text_box_set_text(app->text_box, app->response);
     text_box_set_font(app->text_box, TextBoxFontText);
     text_box_set_focus(app->text_box, TextBoxFocusStart);
@@ -191,16 +161,16 @@ static void input_result_callback(void* context) {
             show_reply(app, "No message entered.");
             return;
         }
-        if(!app->ble_profile || !app->ble_connected) {
+        if(!app->ble_started) {
             show_reply(app, "iPhone is not connected.\n\nChoose Connect iPhone, pair it with IsaiahAI 6.0 in iOS Bluetooth settings, then try again.");
             return;
         }
         ble_type_ascii(app, app->prompt);
         /* Return is sent only after the user explicitly confirms on the Flipper.
            iOS may insert a newline rather than send, depending on the app/settings. */
-        ble_profile_hid_kb_press(app->ble_profile, HID_KEYBOARD_RETURN);
+        furi_hal_bt_hid_kb_press(HID_KEYBOARD_RETURN);
         furi_delay_ms(25);
-        ble_profile_hid_kb_release(app->ble_profile, HID_KEYBOARD_RETURN);
+        furi_hal_bt_hid_kb_release(HID_KEYBOARD_RETURN);
         append_line(app, HISTORY_PATH, "IPHONE_MESSAGE_TYPED", app->prompt);
         show_reply(app, "Message typed over Bluetooth.\n\nIf Messages sent it, you're done. If it created a new line, tap Send on the iPhone.\n\nOnly basic English/ASCII characters are supported. Open the intended conversation and focus its message field before sending.");
         return;
@@ -245,7 +215,7 @@ static void submenu_callback(void* context, uint32_t index) {
             show_reply(app, "Could not start Bluetooth HID. Close other Bluetooth HID apps and restart IsaiahAI.");
         }
     } else if(index == 2) {
-        if(!app->ble_profile || !app->ble_connected) {
+        if(!app->ble_started) {
             show_reply(app, "Not connected to iPhone yet.\n\nChoose Connect iPhone first, then pair in iOS Settings > Bluetooth.");
         } else {
             app->input_mode = ModeBluetoothMessage;
@@ -255,7 +225,7 @@ static void submenu_callback(void* context, uint32_t index) {
             view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
         }
     } else if(index == 3) {
-        show_reply(app, app->ble_connected ? "Bluetooth status: Connected" : "Bluetooth status: Not connected");
+        show_reply(app, app->ble_started ? "Bluetooth HID is active. Pair the Flipper keyboard in iPhone Settings > Bluetooth." : "Bluetooth HID is not active.");
     }
 }
 
@@ -283,7 +253,6 @@ int32_t isaiahai6_app(void* p) {
     app->storage = furi_record_open(RECORD_STORAGE);
     if(!app->storage) { free(app); return -1; }
     storage_common_mkdir(app->storage, APP_FOLDER);
-    app->bt = furi_record_open(RECORD_BT);
 
     app->uart_ready = true;
     furi_hal_uart_init(FuriHalUartIdUSART1, 115200);
@@ -314,15 +283,10 @@ int32_t isaiahai6_app(void* p) {
     view_dispatcher_switch_to_view(app->dispatcher, VIEW_MENU);
     view_dispatcher_run(app->dispatcher);
 
-    if(app->bt && app->ble_profile) {
-        bt_set_status_changed_callback(app->bt, NULL, NULL);
-        bt_disconnect(app->bt);
-        furi_delay_ms(200);
-        bt_keys_storage_set_default_path(app->bt);
-        (void)bt_profile_restore_default(app->bt);
-        app->ble_profile = NULL;
+    if(app->ble_started) {
+        furi_hal_bt_hid_stop();
+        app->ble_started = false;
     }
-    if(app->bt) furi_record_close(RECORD_BT);
 
     if(app->uart_ready) {
         furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, NULL, NULL);
