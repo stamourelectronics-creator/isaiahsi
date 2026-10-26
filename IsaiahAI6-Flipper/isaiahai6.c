@@ -157,7 +157,7 @@ static bool url_append_encoded(char* out, size_t capacity, size_t* used, const c
             out[(*used)++] = hex[ch >> 4];
             out[(*used)++] = hex[ch & 0x0F];
         }
-        out[*used] = '\\0';
+        out[*used] = '\0';
     }
     return true;
 }
@@ -166,13 +166,13 @@ static bool launch_shortcut(IsaiahApp* app, const char* shortcut_name, const cha
     if(!app->ble_started) return false;
     char url[1400];
     size_t used = 0;
-    url[0] = '\\0';
+    url[0] = '\0';
     const char* prefix = "shortcuts://run-shortcut?name=";
     size_t prefix_len = strlen(prefix);
     if(prefix_len >= sizeof(url)) return false;
     memcpy(url, prefix, prefix_len);
     used = prefix_len;
-    url[used] = '\\0';
+    url[used] = '\0';
     if(!url_append_encoded(url, sizeof(url), &used, shortcut_name)) return false;
     if(input) {
         const char* separator = "&input=text&text=";
@@ -180,7 +180,7 @@ static bool launch_shortcut(IsaiahApp* app, const char* shortcut_name, const cha
         if(used + sep_len >= sizeof(url)) return false;
         memcpy(url + used, separator, sep_len);
         used += sep_len;
-        url[used] = '\\0';
+        url[used] = '\0';
         if(!url_append_encoded(url, sizeof(url), &used, input)) return false;
     }
     ble_type_ascii(app, url);
@@ -294,7 +294,7 @@ static void submenu_callback(void* context, uint32_t index) {
     } else if(index == 3) {
         app->input_mode = ModeSiriShortcut;
         app->editing_input = true;
-        app->prompt[0] = '\\0';
+        app->prompt[0] = '\0';
         text_input_set_header_text(app->input, "Siri: Send Message");
         view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
     } else if(index == 4) {
