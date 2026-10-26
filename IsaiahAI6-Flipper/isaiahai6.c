@@ -25,6 +25,7 @@
 typedef enum {
     ModeAiChat,
     ModeBluetoothMessage,
+    ModeSiriShortcut,
 } InputMode;
 
 typedef struct {
@@ -138,6 +139,58 @@ static void ble_type_ascii(IsaiahApp* app, const char* text) {
     }
 }
 
+
+/* Encode URL components before sending a Shortcuts URL to iOS over BLE HID. */
+static bool url_append_encoded(char* out, size_t capacity, size_t* used, const char* input) {
+    static const char hex[] = "0123456789ABCDEF";
+    for(const unsigned char* p = (const unsigned char*)input; *p; p++) {
+        unsigned char ch = *p;
+        bool safe = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                    (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' ||
+                    ch == '.' || ch == '~';
+        size_t need = safe ? 1 : 3;
+        if(*used + need >= capacity) return false;
+        if(safe) {
+            out[(*used)++] = (char)ch;
+        } else {
+            out[(*used)++] = '%';
+            out[(*used)++] = hex[ch >> 4];
+            out[(*used)++] = hex[ch & 0x0F];
+        }
+        out[*used] = '\\0';
+    }
+    return true;
+}
+
+static bool launch_shortcut(IsaiahApp* app, const char* shortcut_name, const char* input) {
+    if(!app->ble_started) return false;
+    char url[1400];
+    size_t used = 0;
+    url[0] = '\\0';
+    const char* prefix = "shortcuts://run-shortcut?name=";
+    size_t prefix_len = strlen(prefix);
+    if(prefix_len >= sizeof(url)) return false;
+    memcpy(url, prefix, prefix_len);
+    used = prefix_len;
+    url[used] = '\\0';
+    if(!url_append_encoded(url, sizeof(url), &used, shortcut_name)) return false;
+    if(input) {
+        const char* separator = "&input=text&text=";
+        size_t sep_len = strlen(separator);
+        if(used + sep_len >= sizeof(url)) return false;
+        memcpy(url + used, separator, sep_len);
+        used += sep_len;
+        url[used] = '\\0';
+        if(!url_append_encoded(url, sizeof(url), &used, input)) return false;
+    }
+    ble_type_ascii(app, url);
+    furi_delay_ms(30);
+    furi_hal_bt_hid_kb_press(HID_KEYBOARD_RETURN);
+    furi_delay_ms(30);
+    furi_hal_bt_hid_kb_release(HID_KEYBOARD_RETURN);
+    return true;
+}
+
 static void show_reply(IsaiahApp* app, const char* message) {
     if(message != app->response) snprintf(app->response, sizeof(app->response), "%s", message);
     text_box_set_text(app->text_box, app->response);
@@ -151,6 +204,24 @@ static void show_reply(IsaiahApp* app, const char* message) {
 static void input_result_callback(void* context) {
     IsaiahApp* app = context;
     app->response[0] = '\0';
+
+    if(app->input_mode == ModeSiriShortcut) {
+        if(!app->prompt[0]) {
+            show_reply(app, "No message entered.");
+            return;
+        }
+        if(!app->ble_started) {
+            show_reply(app, "iPhone is not connected. Choose Connect iPhone first.");
+            return;
+        }
+        if(launch_shortcut(app, "IsaiahChat Send", app->prompt)) {
+            append_line(app, HISTORY_PATH, "SIRI_SHORTCUT_SEND_REQUEST", app->prompt);
+            show_reply(app, "Opened the IsaiahChat Send shortcut on your iPhone.\n\nIf iOS asks, unlock the phone and choose a recipient. The shortcut must be set up first; see IOS_SHORTCUT_SETUP.md in the project. The Flipper cannot display the reply text by itself.");
+        } else {
+            show_reply(app, "Could not build the Shortcuts URL. Try a shorter message.");
+        }
+        return;
+    }
 
     if(app->input_mode == ModeBluetoothMessage) {
         if(!app->prompt[0]) {
@@ -185,7 +256,7 @@ static void input_result_callback(void* context) {
         read_contacts(app);
         show_reply(app, app->response);
     } else if(strcmp(app->prompt, "/help") == 0) {
-        show_reply(app, "IsaiahAI 6.0\n\nAI Chat: uses the ESP32 UART bridge.\nConnect iPhone: pair as a Bluetooth keyboard.\nType & Send: types into the currently focused iPhone text field and presses Return.\n/contact Name|Number saves a contact.\n/contacts lists contacts.\n\nThe Flipper cannot directly read iMessages or select recipients.");
+        show_reply(app, "IsaiahChat\n\nAI Chat uses the ESP32 UART bridge. Type & Send types into a focused iPhone field. Siri: Send Message launches the IsaiahChat Send shortcut with your typed text. Siri: Read Latest launches the IsaiahChat Read shortcut. Create both shortcuts on the iPhone first; see IOS_SHORTCUT_SETUP.md. iOS may require unlock or recipient confirmation. The Flipper cannot directly sync iMessage history or show a reply unless an iPhone companion app is built.");
     } else if(app->uart_ready) {
         if(!ask_bridge(app, app->prompt) && !app->response[0])
             snprintf(app->response, sizeof(app->response), "Bridge returned an invalid response.");
@@ -221,6 +292,20 @@ static void submenu_callback(void* context, uint32_t index) {
             view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
         }
     } else if(index == 3) {
+        app->input_mode = ModeSiriShortcut;
+        app->editing_input = true;
+        app->prompt[0] = '\\0';
+        text_input_set_header_text(app->input, "Siri: Send Message");
+        view_dispatcher_switch_to_view(app->dispatcher, VIEW_INPUT);
+    } else if(index == 4) {
+        if(!app->ble_started) {
+            show_reply(app, "Choose Connect iPhone first, then pair the Flipper keyboard in iOS Bluetooth settings.");
+        } else if(launch_shortcut(app, "IsaiahChat Read", NULL)) {
+            show_reply(app, "Launched IsaiahChat Read on your iPhone. If configured, it will find and speak the latest message. Unlock the iPhone if iOS requests it.");
+        } else {
+            show_reply(app, "Could not launch the shortcut.");
+        }
+    } else if(index == 5) {
         show_reply(app, app->ble_started ? "Bluetooth HID is active. Pair the Flipper keyboard in iPhone Settings > Bluetooth." : "Bluetooth HID is not active.");
     }
 }
@@ -265,7 +350,9 @@ int32_t isaiahai6_app(void* p) {
     submenu_add_item(app->menu, "AI Chat (ESP32)", 0, submenu_callback, app);
     submenu_add_item(app->menu, "Connect iPhone", 1, submenu_callback, app);
     submenu_add_item(app->menu, "Type & Send Message", 2, submenu_callback, app);
-    submenu_add_item(app->menu, "Bluetooth Status", 3, submenu_callback, app);
+    submenu_add_item(app->menu, "Siri: Send Message", 3, submenu_callback, app);
+    submenu_add_item(app->menu, "Siri: Read Latest", 4, submenu_callback, app);
+    submenu_add_item(app->menu, "Bluetooth Status", 5, submenu_callback, app);
     view_dispatcher_add_view(app->dispatcher, VIEW_MENU, submenu_get_view(app->menu));
 
     app->input = text_input_alloc();
